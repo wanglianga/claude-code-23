@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: community-waste-supervision:latest
+    container_name: ${COMPOSE_PROJECT_NAME}-app
+    # 仅发布应用服务端口；宿主端口由 CC_PUBLISH_PORT 指定，避免并行任务端口冲突
+    ports:
+      - "${CC_PUBLISH_PORT}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 8s
