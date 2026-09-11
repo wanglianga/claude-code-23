@@ -3,6 +3,9 @@ import { persist } from 'zustand/middleware';
 import type {
   BindTarget,
   Building,
+  BulkyAppointment,
+  BulkyHaulResult,
+  BulkyItemType,
   DisposalSite,
   HaulingFeedback,
   HaulingIssues,
@@ -16,6 +19,7 @@ import type {
 import {
   seedArchives,
   seedBuildings,
+  seedBulkyAppointments,
   seedEvents,
   seedHauling,
   seedResidents,
@@ -23,6 +27,7 @@ import {
   seedWatchlist,
 } from '../data/seed';
 import { buildingPerformance, computeSiteStats, isHighFrequency } from '../lib/analytics';
+import { buildingBriefingFocus, suggestSchedule } from '../lib/bulky';
 
 interface NewEventInput {
   siteId: string;
@@ -58,6 +63,7 @@ interface State {
   hauling: HaulingFeedback[];
   archives: SiteArchive[];
   watchlist: WatchlistItem[];
+  bulkyAppointments: BulkyAppointment[];
 
   setRole: (r: Role) => void;
   resetDemo: () => void;
@@ -81,6 +87,42 @@ interface State {
   removeWatchlist: (siteId: string) => void;
   /** 依据高发规则重建系统自动识别项（保留人工挂牌项） */
   refreshWatchlist: () => void;
+
+  // ===== 大件垃圾预约联动 =====
+  submitBulky: (input: BulkySubmitInput) => string;
+  /** 督导把提前丢弃现场照片关联到预约，并生成/绑定误投事件 */
+  linkEarlyDump: (appointmentId: string, input: EarlyDumpInput) => string;
+  /** 清运完成：同步保洁成本到点位档案、居民积分、预约结果 */
+  completeBulkyHaul: (appointmentId: string, result: CompleteBulkyInput) => void;
+  /** 依据楼栋误投类型安排一场重点内容宣导，并记录到点位档案 */
+  arrangeBuildingBriefing: (buildingId: string) => void;
+}
+
+export interface BulkySubmitInput {
+  buildingId: string;
+  residentId: string | null;
+  residentName: string;
+  room: string;
+  itemType: BulkyItemType;
+  itemName: string;
+  volume: number;
+  floor: number;
+  requestedDate: string;
+}
+
+export interface EarlyDumpInput {
+  photo: string;
+  note: string;
+  supervisor: string;
+}
+
+export interface CompleteBulkyInput {
+  vehicle: string;
+  worker: string;
+  cleaningCost: number;
+  note: string;
+  cooperation: BulkyHaulResult['cooperation'];
+  cooperationText: string;
 }
 
 function today() {
@@ -92,6 +134,13 @@ function nextCode(events: MisDumpEvent[]) {
   const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
   const seq = events.filter((e) => e.code.includes(ymd)).length + 1;
   return `WG-${ymd}-${String(seq).padStart(2, '0')}`;
+}
+
+function nextBulkyCode(appointments: BulkyAppointment[]) {
+  const d = new Date();
+  const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const seq = appointments.filter((a) => a.code.includes(ymd)).length + 1;
+  return `YY-${ymd}-${String(seq).padStart(2, '0')}`;
 }
 
 function emptyIssues(): HaulingIssues {
@@ -154,6 +203,7 @@ export const useStore = create<State>()(
       hauling: seedHauling,
       archives: seedArchives,
       watchlist: seedWatchlist,
+      bulkyAppointments: seedBulkyAppointments,
 
       setRole: (r) => set({ role: r }),
       resetDemo: () =>
@@ -165,6 +215,7 @@ export const useStore = create<State>()(
           hauling: seedHauling,
           archives: seedArchives,
           watchlist: seedWatchlist,
+          bulkyAppointments: seedBulkyAppointments,
         }),
 
       addEvent: (rawInput) => {
@@ -272,14 +323,15 @@ export const useStore = create<State>()(
       restorePoints: (eventId, points) =>
         set((s) => {
           const target = s.events.find((e) => e.id === eventId);
-          const residents = s.residents.map((r) =>
-            target?.residentId && r.id === target.residentId
-              ? { ...r, points: r.points + points, frozen: false }
-              : r,
-          );
           const events = s.events.map((e) =>
             e.id === eventId ? applyClosure({ ...e, pointsRestored: true }) : e,
           );
+          // 该住户仍有其他未闭环事件时保持冻结
+          const residents = s.residents.map((r) => {
+            if (!target?.residentId || r.id !== target.residentId) return r;
+            const stillOpen = events.some((e) => e.residentId === r.id && e.status !== 'closed');
+            return { ...r, points: r.points + points, frozen: stillOpen };
+          });
           return { residents, events };
         }),
 
@@ -320,6 +372,199 @@ export const useStore = create<State>()(
 
       removeWatchlist: (siteId) => set((s) => ({ watchlist: s.watchlist.filter((w) => w.siteId !== siteId) })),
 
+      // ============ 大件垃圾预约联动 ============
+
+      submitBulky: (input) => {
+        const id = `a${Date.now()}`;
+        const code = nextBulkyCode(get().bulkyAppointments);
+        const s = get();
+        const building = s.buildings.find((b) => b.id === input.buildingId)!;
+        const site = s.sites.find((x) => x.id === building.preferredSiteId)!;
+        const suggestion = suggestSchedule({
+          site,
+          building,
+          volume: input.volume,
+          floor: input.floor,
+          requestedDate: input.requestedDate,
+          appointments: s.bulkyAppointments,
+        });
+        const appt: BulkyAppointment = {
+          id,
+          code,
+          siteId: site.id,
+          buildingId: input.buildingId,
+          residentId: input.residentId,
+          residentName: input.residentName,
+          room: input.room,
+          itemType: input.itemType,
+          itemName: input.itemName,
+          volume: input.volume,
+          elevator: building.hasElevator ? 'yes' : 'no',
+          floor: input.floor,
+          requestedDate: input.requestedDate,
+          status: suggestion.feasible ? 'scheduled' : 'submitted',
+          scheduledDate: suggestion.feasible ? suggestion.date : null,
+          scheduledSession: suggestion.feasible ? suggestion.session : null,
+          scheduledReason: suggestion.reason,
+          createdAt: new Date().toISOString(),
+        };
+        set((st) => ({ bulkyAppointments: [appt, ...st.bulkyAppointments] }));
+        return id;
+      },
+
+      linkEarlyDump: (appointmentId, input) => {
+        const st = get();
+        const appt = st.bulkyAppointments.find((a) => a.id === appointmentId);
+        if (!appt) return '';
+        // 1) 生成关联的大件误投事件（匿名/绑定楼栋；若预约识别住户则绑定住户，保持同栋校验）
+        const bindResident = appt.residentId && st.residents.find((r) => r.id === appt.residentId);
+        const eventId = `e${Date.now()}`;
+        const code = nextCode(st.events);
+        const event: MisDumpEvent = {
+          id: eventId,
+          code,
+          siteId: appt.siteId,
+          binCode: '大件暂存区',
+          sessionLabel: appt.scheduledSession ?? '非投放时段',
+          time: new Date().toISOString(),
+          buildingId: appt.buildingId,
+          residentId: bindResident ? appt.residentId : null,
+          bindTarget: bindResident ? 'resident' : 'anonymous',
+          category: 'bulky',
+          photo: input.photo,
+          note: `大件「${appt.itemName}」提前丢弃在桶边，关联预约 ${appt.code}。${input.note}`,
+          persuaded: true,
+          cooperated: false,
+          status: 'rectifying',
+          rectification: {
+            measure: '督导关联预约，通知居民按排期投放并协调即时清运',
+            assignee: `督导员 ${input.supervisor}`,
+            dueAt: today(),
+          },
+          bulkyAppointmentId: appt.id,
+        };
+        // 2) 预约标记为提前丢弃
+        const updatedAppt: BulkyAppointment = {
+          ...appt,
+          status: 'early-dumped',
+          earlyDump: {
+            at: new Date().toISOString(),
+            photo: input.photo,
+            note: input.note,
+            linkedEventId: eventId,
+            supervisor: input.supervisor,
+          },
+        };
+        // 3) 绑定住户：提前丢弃不奖励、积分冻结（待整改复查恢复）
+        const residents = st.residents.map((r) =>
+          bindResident && r.id === appt.residentId ? { ...r, frozen: true } : r,
+        );
+        set((s) => ({
+          events: [event, ...s.events],
+          residents,
+          bulkyAppointments: s.bulkyAppointments.map((a) => (a.id === appointmentId ? updatedAppt : a)),
+        }));
+        return eventId;
+      },
+
+      completeBulkyHaul: (appointmentId, input) => {
+        const st = get();
+        const appt = st.bulkyAppointments.find((a) => a.id === appointmentId);
+        if (!appt) return;
+        const date = today();
+        const result: BulkyHaulResult = {
+          at: new Date().toISOString(),
+          vehicle: input.vehicle,
+          worker: input.worker,
+          cleaningCost: input.cleaningCost,
+          note: input.note,
+          cooperation: input.cooperation,
+          cooperationText: input.cooperationText,
+          // 规范投放 +5 分；提前丢弃 0 分（积分维持冻结，待误投事件闭环）；残留杂物 -5 分
+          pointsDelta: input.cooperation === 'cooperative' ? 5 : input.cooperation === 'left-debris' ? -5 : 0,
+        };
+
+        // 1) 物业保洁成本回到同一暂存点档案
+        const archives = st.archives.map((a) =>
+          a.siteId === appt.siteId
+            ? {
+                ...a,
+                cleaningCosts: [
+                  { date, amount: input.cleaningCost, note: `大件清运保洁：${appt.itemName}（${appt.code}）` },
+                  ...a.cleaningCosts,
+                ],
+              }
+            : a,
+        );
+
+        // 3) 预约完成；关联的提前丢弃事件若已复查通过，则随大件专项宣导一并闭环
+        const linkedId = appt.earlyDump?.linkedEventId;
+        const events = st.events.map((e) => {
+          if (linkedId && e.id === linkedId) {
+            const passed = e.recheck?.passed || e.status === 'closed';
+            if (passed) {
+              return {
+                ...e,
+                status: 'closed' as const,
+                educationDone: true,
+                educationType: 'building-briefing' as const,
+                educationAt: date,
+                pointsRestored: e.bindTarget === 'resident' ? true : e.pointsRestored,
+              };
+            }
+          }
+          return e;
+        });
+
+        // 2) 居民积分同步（解冻状态以更新后的事件为准：仍有未闭环事件则保持冻结）
+        const residentStillOpen = (rid: string) =>
+          events.some((e) => e.residentId === rid && e.status !== 'closed');
+        //   规范投放 +5 分；提前丢弃 0 分；残留杂物 -5 分。
+        const residents = st.residents.map((r) => {
+          if (!appt.residentId || r.id !== appt.residentId) return r;
+          if (input.cooperation === 'cooperative' || input.cooperation === 'late') {
+            return { ...r, points: r.points + result.pointsDelta, frozen: residentStillOpen(r.id) };
+          }
+          if (input.cooperation === 'left-debris') {
+            return { ...r, points: Math.max(0, r.points + result.pointsDelta), frozen: true };
+          }
+          // early-dumped：不奖分；关联事件闭环且无其他未闭环事件时才解冻
+          return { ...r, frozen: residentStillOpen(r.id) };
+        });
+
+        set((s) => ({
+          archives,
+          residents,
+          events,
+          bulkyAppointments: s.bulkyAppointments.map((a) =>
+            a.id === appointmentId ? { ...a, status: 'completed', haulResult: result } : a,
+          ),
+        }));
+        st.refreshWatchlist();
+      },
+
+      arrangeBuildingBriefing: (buildingId) => {
+        const st = get();
+        const building = st.buildings.find((b) => b.id === buildingId)!;
+        const focus = buildingBriefingFocus(buildingId, st.events, st.bulkyAppointments);
+        const date = today();
+        // 宣导记录写入该楼栋默认暂存点（大件/投放点位）档案
+        const archives = st.archives.map((a) =>
+          a.siteId === building.preferredSiteId
+            ? { ...a, briefings: [{ date, buildingId, topic: focus.topic, audience: 30 }, ...a.briefings] }
+            : a,
+        );
+        // 该楼栋在办事件标记教育完成（楼栋宣导），复查通过后自动闭环
+        const events = st.events.map((e) => {
+          if (e.buildingId === buildingId && !e.educationDone && e.status !== 'closed') {
+            return { ...e, educationDone: true, educationType: 'building-briefing' as const, educationAt: date };
+          }
+          return e;
+        });
+        set({ archives, events });
+        return focus.topic;
+      },
+
       refreshWatchlist: () =>
         set((s) => {
           // 保留人工项，按近 7 天数据重新计算系统识别项
@@ -346,8 +591,10 @@ export const useStore = create<State>()(
         }),
     }),
     {
-      name: 'waste-supervision-v1',
-      // refreshWatchlist 作为 store 上的派生辅助（不持久化方法），通过模块函数实现：
+      name: 'waste-supervision-v2',
+      version: 2,
+      // v1 缓存缺少大件预约与电梯/容量字段：结构变更时直接回退到内置种子数据
+      migrate: () => undefined,
       partialize: (s) => ({
         role: s.role,
         buildings: s.buildings,
@@ -357,6 +604,7 @@ export const useStore = create<State>()(
         hauling: s.hauling,
         archives: s.archives,
         watchlist: s.watchlist,
+        bulkyAppointments: s.bulkyAppointments,
       }),
     },
   ),

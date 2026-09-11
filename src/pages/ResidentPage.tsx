@@ -6,7 +6,7 @@ import { CategoryChip, StatusBadge, BarList } from '../components/ui';
 import { formatTime } from '../lib/analytics';
 
 export default function ResidentPage({ onOpenEvent }: { onOpenEvent: (id: string) => void }) {
-  const { residents, buildings, events } = useStore();
+  const { residents, buildings, events, bulkyAppointments } = useStore();
   const [residentId, setResidentId] = useState(residents[0].id);
   const resident = residents.find((r) => r.id === residentId)!;
   const building = buildings.find((b) => b.id === resident.buildingId)!;
@@ -126,6 +126,9 @@ export default function ResidentPage({ onOpenEvent }: { onOpenEvent: (id: string
             })}
           </div>
         </div>
+
+        {/* 大件预约 */}
+        <BulkyResidentCard residentId={resident.id} onOpenEvent={onOpenEvent} />
       </div>
 
       {/* 右：楼栋表现 */}
@@ -216,6 +219,66 @@ export default function ResidentPage({ onOpenEvent }: { onOpenEvent: (id: string
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkyResidentCard({ residentId, onOpenEvent }: { residentId: string; onOpenEvent: (id: string) => void }) {
+  const { bulkyAppointments, sites } = useStore();
+  const list = bulkyAppointments
+    .filter((a) => a.residentId === residentId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+  const STATUS: Record<string, { text: string; cls: string }> = {
+    submitted: { text: '待排期', cls: 'badge-gray' },
+    scheduled: { text: '已排期', cls: 'badge-blue' },
+    'early-dumped': { text: '提前丢弃·待清运', cls: 'badge-red' },
+    completed: { text: '清运完成', cls: 'badge-green' },
+  };
+
+  return (
+    <div className="card">
+      <h2>🛋️ 我的大件预约</h2>
+      {list.length === 0 && (
+        <p className="muted small">暂未预约大件垃圾。旧家具、床垫、家电请先预约排期，切勿提前堆放在桶边。</p>
+      )}
+      <div className="stack">
+        {list.map((a) => {
+          const site = sites.find((s) => s.id === a.siteId)!;
+          return (
+            <div key={a.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 10, padding: 12 }}>
+              <div className="spread">
+                <strong className="small">{a.itemName}（{a.volume}m³）</strong>
+                <span className={`badge ${STATUS[a.status].cls}`}>{STATUS[a.status].text}</span>
+              </div>
+              <div className="small muted" style={{ marginTop: 4 }}>
+                {a.scheduledDate ? `请于 ${a.scheduledDate} ${a.scheduledSession} 投送至 ${site.name}` : '社区正在排期'}
+                ｜ <span className="mono">{a.code}</span>
+              </div>
+              <div className="small muted" style={{ marginTop: 2 }}>{a.scheduledReason}</div>
+              {a.earlyDump && (
+                <div className="small" style={{ color: 'var(--red)', marginTop: 4 }}>
+                  您提前丢弃的大件已被督导记录，已生成关联误投事件，请配合整改。
+                </div>
+              )}
+              {a.haulResult && (
+                <div className="small" style={{ marginTop: 4 }}>
+                  清运完成，积分变动
+                  <strong style={{ color: a.haulResult.pointsDelta >= 0 ? 'var(--green)' : 'var(--red)', marginLeft: 4 }}>
+                    {a.haulResult.pointsDelta >= 0 ? `+${a.haulResult.pointsDelta}` : a.haulResult.pointsDelta}
+                  </strong>
+                  分（{a.haulResult.cooperationText}）
+                </div>
+              )}
+              {a.earlyDump?.linkedEventId && (
+                <button className="btn btn-outline btn-sm" style={{ marginTop: 6 }} onClick={() => onOpenEvent(a.earlyDump!.linkedEventId!)}>
+                  查看关联事件
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

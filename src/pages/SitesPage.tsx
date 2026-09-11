@@ -5,7 +5,7 @@ import { CATEGORY_RULES } from '../data/rules';
 import { CategoryChip, ProgressBar, QualityBadge, StatusBadge, useToast } from '../components/ui';
 
 export default function SitesPage({ onOpenEvent }: { onOpenEvent: (id: string) => void }) {
-  const { sites, buildings, events, archives, addCleaningCost } = useStore();
+  const { sites, buildings, events, archives, bulkyAppointments, addCleaningCost } = useStore();
   const toast = useToast();
   const [siteId, setSiteId] = useState(sites[0].id);
   const [costAmount, setCostAmount] = useState(120);
@@ -65,6 +65,27 @@ export default function SitesPage({ onOpenEvent }: { onOpenEvent: (id: string) =
       });
     }
   });
+  // 大件预约：提前丢弃关联、清运完成（含保洁成本与配合评价）
+  bulkyAppointments
+    .filter((a) => a.siteId === siteId)
+    .forEach((a) => {
+      if (a.earlyDump) {
+        timeline.push({
+          at: a.earlyDump.at,
+          title: `大件提前丢弃关联：${a.itemName}（${a.code}）`,
+          meta: `督导 ${a.earlyDump.supervisor}｜${a.earlyDump.note}`,
+          tone: 'bad',
+        });
+      }
+      if (a.haulResult) {
+        timeline.push({
+          at: a.haulResult.at,
+          title: `大件清运完成：${a.itemName} · 保洁 ¥${a.haulResult.cleaningCost}`,
+          meta: `${a.haulResult.vehicle} · ${a.haulResult.worker}｜${a.haulResult.cooperationText}｜积分 ${a.haulResult.pointsDelta >= 0 ? '+' : ''}${a.haulResult.pointsDelta}`,
+          tone: a.haulResult.cleaningCost >= 200 || a.haulResult.cooperation !== 'cooperative' ? 'warn' : 'done',
+        });
+      }
+    });
   timeline.sort((a, b) => b.at.localeCompare(a.at));
 
   const submitCost = () => {

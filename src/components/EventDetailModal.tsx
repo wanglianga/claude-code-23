@@ -11,6 +11,7 @@ export default function EventDetailModal({ eventId, onClose }: { eventId: string
     buildings,
     residents,
     events,
+    bulkyAppointments,
     startRectification,
     completeRectification,
     recheck,
@@ -106,6 +107,30 @@ export default function EventDetailModal({ eventId, onClose }: { eventId: string
           </div>
         </div>
       </div>
+
+      {/* 关联大件预约 */}
+      {e.bulkyAppointmentId && (() => {
+        const appt = bulkyAppointments.find((a) => a.id === e.bulkyAppointmentId);
+        if (!appt) return null;
+        return (
+          <>
+            <div className="divider" />
+            <h3 className="small" style={{ marginBottom: 8 }}>🛋️ 关联大件预约</h3>
+            <div className="kv small" style={{ background: '#ede9fe', borderRadius: 10, padding: '10px 12px' }}>
+              <span className="k">预约编号</span><span className="mono">{appt.code}</span>
+              <span className="k">物品</span><span>{appt.itemName}（{appt.volume}m³）</span>
+              <span className="k">排期</span><span>{appt.scheduledDate} {appt.scheduledSession}</span>
+              <span className="k">提前丢弃</span><span>{appt.earlyDump ? `已关联（${appt.earlyDump.supervisor} 登记）` : '无'}</span>
+              {appt.haulResult && (
+                <>
+                  <span className="k">清运保洁</span><span style={{ color: 'var(--red)', fontWeight: 700 }}>¥{appt.haulResult.cleaningCost}</span>
+                  <span className="k">居民配合</span><span>{appt.haulResult.cooperationText}，积分 {appt.haulResult.pointsDelta >= 0 ? '+' : ''}{appt.haulResult.pointsDelta}</span>
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* 清运反馈 */}
       <div className="divider" />

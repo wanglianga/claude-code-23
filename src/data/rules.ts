@@ -1,4 +1,4 @@
-import type { WasteCategory } from '../types';
+import type { BulkyItemType, BulkyHaulResult, WasteCategory } from '../types';
 
 export interface CategoryRule {
   key: WasteCategory;
@@ -103,4 +103,59 @@ export const EDUCATION_LABELS: Record<string, string> = {
   'building-briefing': '楼栋宣导',
   'door-visit': '上门指导',
   'bin-guidance': '桶边值守',
+};
+
+export interface BulkyItemMeta {
+  key: BulkyItemType;
+  name: string;
+  emoji: string;
+  examples: string[];
+  /** 常见单件体积（立方米），用于车次与暂存容量估算 */
+  defaultVolume: number;
+  /** 无电梯楼层每层附加搬运说明 */
+  handling: string[];
+}
+
+export const BULKY_ITEMS: Record<BulkyItemType, BulkyItemMeta> = {
+  furniture: {
+    key: 'furniture',
+    name: '旧家具',
+    emoji: '🛋️',
+    examples: ['沙发', '床垫外的床架', '衣柜', '桌椅', '书柜'],
+    defaultVolume: 1.2,
+    handling: ['拆除五金件并尽量拆分', '高层无电梯需安排搬运工与时段'],
+  },
+  mattress: {
+    key: 'mattress',
+    name: '床垫',
+    emoji: '🛏️',
+    examples: ['弹簧床垫', '棕垫', '乳胶床垫'],
+    defaultVolume: 0.7,
+    handling: ['保持干燥清洁，捆扎防污染', '电梯容纳不下时走楼梯，优先低层/早班清运'],
+  },
+  appliance: {
+    key: 'appliance',
+    name: '家电',
+    emoji: '🧊',
+    examples: ['冰箱', '洗衣机', '空调', '电视机', '热水器'],
+    defaultVolume: 0.9,
+    handling: ['保持完整，禁止自行放掉冷媒', '有电梯楼栋优先安排，避免占用楼道'],
+  },
+  other: {
+    key: 'other',
+    name: '其他大件',
+    emoji: '🚪',
+    examples: ['马桶', '门板', '浴缸', '大型健身器材'],
+    defaultVolume: 0.6,
+    handling: ['提前说明尺寸，便于车次配载', '易碎件做好包裹'],
+  },
+};
+
+export const BULKY_ORDER: BulkyItemType[] = ['furniture', 'mattress', 'appliance', 'other'];
+
+export const COOPERATION_LABELS: Record<BulkyHaulResult['cooperation'], string> = {
+  cooperative: '按预约时间规范投放，配合良好',
+  late: '未在预约时段投放但未提前丢弃',
+  'early-dumped': '提前丢弃在桶边，已关联误投事件',
+  'left-debris': '清运后残留杂物/包装，增加保洁量',
 };

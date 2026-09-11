@@ -10,12 +10,14 @@ import HaulingPage from './pages/HaulingPage';
 import CommunityPage from './pages/CommunityPage';
 import SitesPage from './pages/SitesPage';
 import WatchlistPage from './pages/WatchlistPage';
+import BulkyPage from './pages/BulkyPage';
 import EventDetailModal from './components/EventDetailModal';
 
 const NAV: { key: string; label: string; roles: Role[]; desc: string }[] = [
   { key: 'overview', label: '工作台', roles: ['community', 'supervisor', 'hauler', 'resident'], desc: '全社区投放点与整改进度总览' },
   { key: 'supervise', label: '督导记录', roles: ['community', 'supervisor'], desc: '桶位 / 时段 / 楼栋 / 类型 / 照片 / 劝导 / 配合' },
   { key: 'resident', label: '居民扫码', roles: ['resident', 'community', 'supervisor'], desc: '积分、近期误投提醒、本楼栋分类表现' },
+  { key: 'bulky', label: '大件预约', roles: ['resident', 'community', 'supervisor', 'hauler'], desc: '旧家具/床垫/家电预约排期、提前丢弃关联、清运成本与积分联动' },
   { key: 'hauling', label: '清运反馈', roles: ['hauler', 'community'], desc: '清运问题反馈联动整改任务' },
   { key: 'community', label: '社区研判', roles: ['community'], desc: '高发时段 / 楼栋 / 类型分析与下一步决策' },
   { key: 'sites', label: '点位档案', roles: ['community', 'supervisor', 'hauler'], desc: '整改、复查、积分、清运、保洁成本回到同一点位' },
@@ -121,6 +123,7 @@ function Shell() {
         {current.key === 'overview' && <OverviewPage onNavigate={setPage} onOpenEvent={openEvent} />}
         {current.key === 'supervise' && <SupervisePage onOpenEvent={openEvent} />}
         {current.key === 'resident' && <ResidentPage onOpenEvent={openEvent} />}
+        {current.key === 'bulky' && <BulkyPage onOpenEvent={openEvent} />}
         {current.key === 'hauling' && <HaulingPage onOpenEvent={openEvent} />}
         {current.key === 'community' && <CommunityPage onOpenEvent={openEvent} onNavigate={setPage} />}
         {current.key === 'sites' && <SitesPage onOpenEvent={openEvent} />}

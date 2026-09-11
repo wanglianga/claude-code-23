@@ -36,6 +36,9 @@ export interface Building {
   id: string;
   name: string; // 如 3 号楼
   households: number;
+  hasElevator: boolean; // 楼栋是否有电梯（影响大件搬运安排）
+  /** 该楼栋大件默认清运的暂存点 */
+  preferredSiteId: string;
 }
 
 export interface DisposalSite {
@@ -45,6 +48,8 @@ export interface DisposalSite {
   bins: string[]; // 桶位编号
   /** 定时投放时段 */
   sessions: { label: string; start: string; end: string }[];
+  /** 大件暂存容量（仅大件暂存点配置） */
+  bulkyCapacity?: BulkyCapacity;
 }
 
 export interface MisDumpEvent {
@@ -91,6 +96,8 @@ export interface MisDumpEvent {
   educationDone?: boolean; // 是否完成居民教育（楼栋宣导/上门指导/桶边值守）
   educationType?: 'building-briefing' | 'door-visit' | 'bin-guidance';
   educationAt?: string;
+  /** 若该大件误投由督导关联到大件预约，则记录预约 id */
+  bulkyAppointmentId?: string;
 }
 
 export interface HaulingFeedback {
@@ -115,6 +122,64 @@ export interface SiteArchive {
   guardDuties: { date: string; shift: string; guarder: string; note: string }[];
   // 楼栋宣导记录
   briefings: { date: string; buildingId: string; topic: string; audience: number }[];
+}
+
+/** 大件垃圾品类 */
+export type BulkyItemType = 'furniture' | 'mattress' | 'appliance' | 'other';
+
+/** 大件预约状态：待确认 → 已排期 → 已完成；提前丢弃 → 待整改 */
+export type BulkyStatus = 'submitted' | 'scheduled' | 'early-dumped' | 'completed';
+
+/** 大件预约关联的提前丢弃事件 / 清运结果 */
+export interface BulkyHaulResult {
+  at: string; // 清运完成时间
+  vehicle: string;
+  worker: string;
+  cleaningCost: number; // 物业保洁成本（元）
+  note: string;
+  /** 居民配合评价 */
+  cooperation: 'cooperative' | 'late' | 'early-dumped' | 'left-debris';
+  /** 居民配合情况文字 */
+  cooperationText: string;
+  /** 本次清运奖励积分（提前丢弃为 0 或扣减） */
+  pointsDelta: number;
+}
+
+export interface BulkyAppointment {
+  id: string;
+  code: string; // YY-20260911-01
+  siteId: string; // 排入的大件暂存点
+  buildingId: string;
+  residentId: string | null;
+  residentName: string;
+  room: string;
+  itemType: BulkyItemType;
+  itemName: string; // 具体物品，如 三人沙发
+  volume: number; // 估算体积（立方米）
+  elevator: 'yes' | 'no' | 'unknown'; // 居民楼栋是否有电梯
+  floor: number;
+  requestedDate: string; // 居民期望日期
+  status: BulkyStatus;
+  scheduledDate: string | null; // 系统安排日期
+  scheduledSession: string | null; // 系统安排时段
+  scheduledReason: string; // 调度说明（楼栋/电梯/车次/暂存容量）
+  earlyDump?: {
+    at: string;
+    photo: string;
+    note: string;
+    linkedEventId: string | null; // 关联生成的误投事件
+    supervisor: string;
+  };
+  haulResult?: BulkyHaulResult;
+  createdAt: string;
+}
+
+/** 暂存点单日容量配置（大件清运车次与暂存空间） */
+export interface BulkyCapacity {
+  /** 时段 → 当日车次容量（车次） */
+  vehicleSlots: { label: string; maxTrips: number; tripVolume: number }[];
+  /** 暂存点空间上限（立方米） */
+  storageVolume: number;
 }
 
 /** 长期高发点位专项治理清单条目 */

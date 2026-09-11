@@ -34,7 +34,7 @@ const residentSelect = page.locator('select').filter({ has: page.locator('option
 
 const readState = async () => {
   return await page.evaluate(() => {
-    const raw = JSON.parse(localStorage.getItem('waste-supervision-v1'));
+    const raw = JSON.parse(localStorage.getItem('waste-supervision-v2'));
     return raw.state;
   });
 };
