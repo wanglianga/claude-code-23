@@ -112,6 +112,27 @@ npm run dev      # 开发服务器
 npm run build    # 类型检查 + 生产构建（输出 dist/）
 ```
 
+## 浏览器端到端验收（可选）
+
+`e2e/` 目录内置基于 `playwright-core` + Alpine Chromium 的验收脚本，覆盖督导登记的四条路径（无需本地安装浏览器）：
+
+```bash
+# 1. 启动应用
+docker compose up -d
+# 2. 构建并运行验收镜像（容器内 Chromium 自动访问 host.docker.internal:${CC_PUBLISH_PORT}）
+docker build -t waste-e2e-runner -f e2e/Dockerfile.e2e e2e
+docker run --rm --add-host=host.docker.internal:host-gateway waste-e2e-runner
+```
+
+脚本断言 22 项，覆盖：
+
+1. **默认提交**：默认 1 号楼时住户下拉只含 1 号楼住户（默认张女士 1-303），提交后事件归属 b1/张女士，本人积分 -10 冻结，3 号楼王阿姨积分不变；
+2. **切换楼栋后提交**：切 3 号楼住户列表同步为王阿姨/李先生/孙大爷（王阿姨积分 72→62）；切 5 号楼只剩陈师傅（40→30）；
+3. **只绑定楼栋**：无住户下拉，事件 `bindTarget=building`、`residentId=null`，所有住户积分不变；
+4. **匿名提交**：事件 `bindTarget=anonymous`、归属所选楼栋、列表展示匿名徽标，所有住户积分不变。
+
+> 防错为双保险：页面层保证住户选项随 `buildingId` 初始化与切换同步并在提交前强校验；store 层 `addEvent` 对任何「住户不属于所选楼栋」的入参强制降级为楼栋绑定，杜绝跨楼栋扣减积分/污染统计。
+
 ## 验证方式（宿主 docker compose up）
 
 本工程已在宿主 Docker 环境完成验证：

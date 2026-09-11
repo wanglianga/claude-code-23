@@ -167,7 +167,19 @@ export const useStore = create<State>()(
           watchlist: seedWatchlist,
         }),
 
-      addEvent: (input) => {
+      addEvent: (rawInput) => {
+        // 防御性兜底：任何调用路径都不允许写入「住户不属于所选楼栋」的数据
+        let input = rawInput;
+        if (rawInput.bindTarget === 'resident' && rawInput.residentId) {
+          const resident = get().residents.find((r) => r.id === rawInput.residentId);
+          if (!resident || resident.buildingId !== rawInput.buildingId) {
+            // 归属不一致：降级为楼栋绑定，避免错误扣减居民积分 / 污染楼栋统计
+            input = { ...rawInput, residentId: null, bindTarget: 'building' };
+          }
+        }
+        if (input.bindTarget !== 'resident') {
+          input = { ...input, residentId: null };
+        }
         const id = `e${Date.now()}`;
         const code = nextCode(get().events);
         const event: MisDumpEvent = {

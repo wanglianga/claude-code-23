@@ -22,7 +22,10 @@ export default function SupervisePage({ onOpenEvent }: { onOpenEvent: (id: strin
   const [sessionLabel, setSessionLabel] = useState(sites[0].sessions[0].label);
   const [buildingId, setBuildingId] = useState(buildings[0].id);
   const [bindTarget, setBindTarget] = useState<BindTarget>('resident');
-  const [residentId, setResidentId] = useState<string | null>(residents[0].id);
+  // 初始住户必须取自默认楼栋（1 号楼），避免楼栋与住户默认值不一致
+  const [residentId, setResidentId] = useState<string | null>(
+    () => residents.find((r) => r.buildingId === buildings[0].id)?.id ?? null,
+  );
   const [category, setCategory] = useState<WasteCategory>('wet');
   const [photo, setPhoto] = useState(PHOTO_OPTIONS.wet[0]);
   const [note, setNote] = useState('');
@@ -52,6 +55,15 @@ export default function SupervisePage({ onOpenEvent }: { onOpenEvent: (id: strin
     setPhoto(PHOTO_OPTIONS[c][0]);
   };
 
+  const changeBuilding = (id: string) => {
+    setBuildingId(id);
+    // 楼栋切换时：绑定住户模式下同步选中该楼栋第一位住户，杜绝跨楼栋绑定
+    if (bindTarget === 'resident') {
+      const first = residents.find((r) => r.buildingId === id);
+      setResidentId(first?.id ?? null);
+    }
+  };
+
   const changeBind = (t: BindTarget) => {
     setBindTarget(t);
     if (t === 'resident') {
@@ -61,9 +73,19 @@ export default function SupervisePage({ onOpenEvent }: { onOpenEvent: (id: strin
   };
 
   const submit = () => {
-    if (bindTarget === 'resident' && !residentId) {
-      toast('该楼栋暂无登记住户，请改为绑定楼栋或匿名事件');
-      return;
+    if (bindTarget === 'resident') {
+      if (!residentId) {
+        toast('该楼栋暂无登记住户，请改为绑定楼栋或匿名事件');
+        return;
+      }
+      // 提交前强校验：住户必须属于所选楼栋，阻止归属/积分/统计写错对象
+      const chosen = residents.find((r) => r.id === residentId);
+      if (!chosen || chosen.buildingId !== buildingId) {
+        const first = residents.find((r) => r.buildingId === buildingId);
+        setResidentId(first?.id ?? null);
+        toast('楼栋与住户不一致，已按所选楼栋刷新住户，请重新提交');
+        return;
+      }
     }
     addEvent({
       siteId,
@@ -120,7 +142,7 @@ export default function SupervisePage({ onOpenEvent }: { onOpenEvent: (id: strin
             </div>
             <div className="field">
               <label>居民楼栋</label>
-              <select value={buildingId} onChange={(e) => setBuildingId(e.target.value)}>
+              <select value={buildingId} onChange={(e) => changeBuilding(e.target.value)}>
                 {buildings.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}

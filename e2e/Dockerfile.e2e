@@ -1,0 +1,11 @@
+FROM node:22-alpine
+# 仅用于浏览器验收：alpine 仓库内的 chromium + 中文字体（使用国内镜像源加速）
+RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories && \
+    apk update && \
+    apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-cjk
+WORKDIR /e2e
+COPY package.json ./
+RUN npm install --no-audit --no-fund
+COPY check.mjs ./
+ENV CHROMIUM_PATH=/usr/bin/chromium-browser
+CMD ["node", "check.mjs"]
